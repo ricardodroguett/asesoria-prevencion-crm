@@ -4,9 +4,16 @@ services:
     env: node
     region: oregon
     plan: free
-    buildCommand: npm install && npx prisma generate && npm run build
+    # Comandos de build
+    buildCommand: |
+      npm ci
+      npx prisma generate
+      npm run build
+    # Comando de inicio
     startCommand: npm run start:prod
+    # Health check
     healthCheckPath: /api/health
+    # Variables de entorno
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -18,5 +25,5 @@ services:
         value: Asesoría Prevención CRM
       - key: APP_URL
         sync: false
-
-
+    # Auto-deploy
+    autoDeploy: true
