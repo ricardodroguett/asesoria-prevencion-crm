@@ -1,0 +1,321 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USUARIOS DEL SISTEMA
+// ============================================
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(COMERCIAL)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  ownedCompanies     Company[]      @relation("AccountOwner")
+  ownedOpportunities Opportunity[]  @relation("OpportunityOwner")
+  activities         Activity[]     @relation("ActivityCreator")
+  assignedTasks      OpportunityTask[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  CEO
+  DIR_TECNICO
+  DIR_COMERCIAL
+  COMERCIAL
+  PREVENCIONISTA
+  CLIENTE
+}
+
+// ============================================
+// EMPRESAS / CLIENTES
+// ============================================
+model Company {
+  id               Int       @id @default(autoincrement())
+  code             String    @unique // CLI-0001
+  businessName     String    // Razón social
+  tradeName        String?   // Nombre fantasía
+  rut              String?   @unique
+  industry         String?   // Educación, Construcción, etc.
+  segment          Segment?
+  workersCount     Int?
+  address          String?
+  commune          String?
+  region           String?
+  adminBody        String?   // ACHS, IST, Mutual
+  website          String?
+  
+  // Contacto principal
+  mainContactName  String?
+  mainContactRole  String?
+  mainContactEmail String?
+  mainContactPhone String?
+  
+  // Estado del servicio
+  currentPhase     Phase?
+  currentServices  String?   // Texto descriptivo
+  startDate        DateTime?
+  renewalDate      DateTime?
+  status           CompanyStatus @default(PROSPECT)
+  
+  // Responsable
+  accountOwnerId   Int?
+  accountOwner     User?     @relation("AccountOwner", fields: [accountOwnerId], references: [id])
+  
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relaciones
+  opportunities    Opportunity[]
+  activities       Activity[]
+
+  @@map("companies")
+}
+
+enum Segment {
+  PYME
+  COLEGIO
+  CONTRATISTA
+  MEDIANA
+  OTRA
+}
+
+enum Phase {
+  F1 // Cumplimiento Base
+  F2 // Asesoría Continua
+  F3 // Consultoría Técnica y Protocolos
+  F4 // Gestión Avanzada y Certificación
+}
+
+enum CompanyStatus {
+  PROSPECT
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+// ============================================
+// OPORTUNIDADES
+// ============================================
+model Opportunity {
+  id                  Int       @id @default(autoincrement())
+  code                String    @unique // OPP-0001
+  title               String
+  description         String?
+  
+  // Relación con empresa
+  companyId           Int
+  company             Company   @relation(fields: [companyId], references: [id])
+  
+  // Origen y segmentación
+  origin              String?   // web, referido, terreno
+  segment             Segment?
+  recommendedPhase    Phase?
+  
+  // Pipeline
+  pipelineStage       PipelineStage @default(PROSPECCION)
+  probabilityPercent  Int?      @default(0)
+  estimatedAmountCLP  Decimal?  @db.Decimal(15, 2)
+  
+  // Fechas
+  proposalSentAt      DateTime?
+  expectedCloseDate   DateTime?
+  closedAt            DateTime?
+  
+  // Cierre
+  lostReason          String?   // precio, sin_presupuesto, postergado
+  
+  // Responsable
+  ownerId             Int?
+  owner               User?     @relation("OpportunityOwner", fields: [ownerId], references: [id])
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relaciones
+  activities          Activity[]
+  tasks               OpportunityTask[]
+  proposals           Proposal[]
+
+  @@map("opportunities")
+}
+
+enum PipelineStage {
+  PROSPECCION
+  DIAGNOSTICO
+  PROPUESTA
+  SEGUIMIENTO
+  CIERRE_G // Ganada
+  CIERRE_P // Perdida
+}
+
+// ============================================
+// ACTIVIDADES COMERCIALES
+// ============================================
+model Activity {
+  id               Int       @id @default(autoincrement())
+  
+  // Relaciones
+  companyId        Int?
+  company          Company?  @relation(fields: [companyId], references: [id])
+  opportunityId    Int?
+  opportunity      Opportunity? @relation(fields: [opportunityId], references: [id])
+  
+  // Tipo de actividad
+  activityType     ActivityType
+  subject          String
+  description      String?
+  activityDatetime DateTime
+  
+  // Resultado
+  outcome          String?   // contactado, no_responde, reagendado
+  nextStep         String?
+  nextStepDate     DateTime?
+  
+  // Creador
+  createdById      Int
+  createdBy        User      @relation("ActivityCreator", fields: [createdById], references: [id])
+  
+  createdAt        DateTime  @default(now())
+
+  @@map("activities")
+}
+
+enum ActivityType {
+  LLAMADA
+  WHATSAPP
+  EMAIL
+  REUNION_ONLINE
+  VISITA_TERRENO
+}
+
+// ============================================
+// PLANTILLAS DE TAREAS (CHECKLIST)
+// ============================================
+model TaskTemplate {
+  id                Int       @id @default(autoincrement())
+  code              String    @unique // T-PR-01
+  name              String
+  description       String?
+  funnelStage       String    // prospeccion, diagnostico, propuesta
+  phaseScope        String?   // F1, F2, F3, F4, general
+  mandatory         Boolean   @default(true)
+  slaDays           Int?
+  roleResponsible   String?   // ceo, dir_tecnico, comercial
+  frequency         String?   // unica, mensual, trimestral
+  automatable       Boolean   @default(false)
+  active            Boolean   @default(true)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  opportunityTasks  OpportunityTask[]
+
+  @@map("task_templates")
+}
+
+// ============================================
+// TAREAS POR OPORTUNIDAD
+// ============================================
+model OpportunityTask {
+  id              Int       @id @default(autoincrement())
+  
+  // Relaciones
+  opportunityId   Int
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  taskTemplateId  Int
+  taskTemplate    TaskTemplate @relation(fields: [taskTemplateId], references: [id])
+  
+  // Estado
+  status          TaskStatus @default(PENDIENTE)
+  dueDate         DateTime?
+  completedAt     DateTime?
+  
+  // Asignación
+  assignedToId    Int?
+  assignedTo      User?     @relation(fields: [assignedToId], references: [id])
+  
+  notes           String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("opportunity_tasks")
+}
+
+enum TaskStatus {
+  PENDIENTE
+  EN_PROCESO
+  COMPLETADA
+  OMITIDA
+}
+
+// ============================================
+// PROPUESTAS
+// ============================================
+model Proposal {
+  id            Int       @id @default(autoincrement())
+  
+  // Relaciones
+  companyId     Int
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  
+  // Montos
+  subtotal      Decimal   @db.Decimal(12, 2)
+  iva           Decimal   @db.Decimal(12, 2)
+  total         Decimal   @db.Decimal(12, 2)
+  
+  // Estado
+  status        ProposalStatus @default(BORRADOR)
+  version       Int       @default(1)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relaciones
+  items         ProposalItem[]
+
+  @@map("proposals")
+}
+
+enum ProposalStatus {
+  BORRADOR
+  ENVIADA
+  ACEPTADA
+  RECHAZADA
+}
+
+// ============================================
+// ÍTEMS DE PROPUESTA
+// ============================================
+model ProposalItem {
+  id            Int       @id @default(autoincrement())
+  
+  proposalId    Int
+  proposal      Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  
+  itemCode      String    // UC_DIAG, UC_PTS_AREA
+  itemName      String
+  quantity      Decimal   @db.Decimal(10, 2)
+  unitPriceCLP  Decimal   @db.Decimal(12, 2)
+  subtotal      Decimal   @db.Decimal(12, 2)
+  
+  phase         String?   // F1, F2, F3, F4
+
+  @@map("proposal_items")
+}
+
