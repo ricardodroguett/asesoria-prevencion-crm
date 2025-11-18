@@ -318,4 +318,3 @@ model ProposalItem {
 
   @@map("proposal_items")
 }
-
